@@ -16,25 +16,35 @@
 using boost::asio::ip::tcp;
 
 // Common log function
-inline void write_log(int prefix, short verbose, short verbose_level, int session_id, const std::string& what, const std::string& error_message = "")
+inline void write_log(int prefix, short verbose, short verbose_level, int session_id, 
+	const std::string& what, const std::string& error_message = "")
 {
-	if (verbose > verbose_level) return;
+	if (verbose > verbose_level) {
+		return;
+	}
 
 	std::string session = "";
-	if (session_id >= 0) { session += "session("; session += std::to_string(session_id); session += "): "; }
+	if (session_id >= 0)
+	{
+		session += "session("; session += std::to_string(session_id); session += "): ";
+	}
 
 	if (prefix > 0)
 	{
 		std::cerr << (prefix == 1 ? "Error: " : "Warning: ") << session << what;
 		if (error_message.size() > 0)
+		{
 			std::cerr << ": " << error_message;
+		}
 		std::cerr << std::endl;
 	}
 	else
 	{ 
 		std::cout << session << what;
 		if (error_message.size() > 0)
+		{
 			std::cout << ": " << error_message;
+		}
 		std::cout << std::endl;
 	}
 }
@@ -50,8 +60,7 @@ public:
 			out_buf_(buffer_size), 
 			session_id_(session_id),
 			verbose_(verbose)
-	{
-	}
+	{}
 
 	void start()
 	{
@@ -59,7 +68,6 @@ public:
 	}
 
 private:
-
 	void read_socks5_handshake()
 	{
 		auto self(shared_from_this());
@@ -67,8 +75,7 @@ private:
 		in_socket_.async_receive(boost::asio::buffer(in_buf_),
 			[this, self](boost::system::error_code ec, std::size_t length)
 			{
-				if (!ec)
-				{
+				if (!ec) {
 /*
 The client connects to the server, and sends a version
 identifier/method selection message:
@@ -101,13 +108,19 @@ o  X'FF' NO ACCEPTABLE METHODS
 
 					// Only 0x00 - 'NO AUTHENTICATION REQUIRED' is now support_ed
 					for (uint8_t method = 0; method < num_methods; ++method)
-						if (in_buf_[2 + method] == 0x00) { in_buf_[1] = 0x00; break; }
+					{
+						if (in_buf_[2 + method] == 0x00)
+						{ 
+							in_buf_[1] = 0x00; break; 
+						}
+					}
 					
 					write_socks5_handshake();
 				}
 				else
+				{
 					write_log(1, 0, verbose_, session_id_, "SOCKS5 handshake request", ec.message());
-
+				}
 			});
 	}
 
@@ -118,14 +131,17 @@ o  X'FF' NO ACCEPTABLE METHODS
 		boost::asio::async_write(in_socket_, boost::asio::buffer(in_buf_, 2), // Always 2-byte according to RFC1928
 			[this, self](boost::system::error_code ec, std::size_t length)
 			{
-				if (!ec)
-				{	
-					if (in_buf_[1] == 0xFF) return; // No appropriate auth method found. Close session.
+				if (!ec) {	
+					if (in_buf_[1] == 0xFF)
+					{
+						return; // No appropriate auth method found. Close session.
+					}
 					read_socks5_request();
 				}
 				else
+				{
 					write_log(1, 0, verbose_, session_id_, "SOCKS5 handshake response write", ec.message());
-
+				}
 			});
 	}
 
@@ -196,8 +212,9 @@ appropriate for the request type.
 					do_resolve();
 				}
 				else
+				{
 					write_log(1, 0, verbose_, session_id_, "SOCKS5 request read", ec.message());
-
+				}
 			});
 	}
 
@@ -223,6 +240,7 @@ appropriate for the request type.
 	void do_connect(tcp::resolver::iterator& it)
 	{
 		auto self(shared_from_this());
+
 		out_socket_.async_connect(*it, 
 			[this, self](const boost::system::error_code& ec)
 			{
@@ -239,7 +257,6 @@ appropriate for the request type.
 
 				}
 			});
-
 	}
 
 	void write_socks5_response()
@@ -324,7 +341,6 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 						// Most probably client closed socket. Let's close both sockets and exit session.
 						in_socket_.close(); out_socket_.close();
 					}
-
 				});
 
 		if (direction & 0x2)
@@ -358,7 +374,9 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 				[this, self, direction](boost::system::error_code ec, std::size_t length)
 				{
 					if (!ec)
+					{
 						do_read(direction);
+					}
 					else
 					{
 						write_log(2, 1, verbose_, session_id_, "closing session. Client socket write error", ec.message());
@@ -372,9 +390,10 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 				[this, self, direction](boost::system::error_code ec, std::size_t length)
 				{
 					if (!ec)
-						do_read(direction);
-					else
 					{
+						do_read(direction);
+					}
+					else {
 						write_log(2, 1, verbose_, session_id_, "closing session. Remote socket write error", ec.message());
 						// Most probably remote server closed socket. Let's close both sockets and exit session.
 						in_socket_.close(); out_socket_.close();
