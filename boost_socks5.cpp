@@ -316,7 +316,9 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 					do_read(3); // Read both sockets
 				}
 				else
+				{
 					write_log(1, 0, verbose_, session_id_, "SOCKS5 response write", ec.message());
+				}
 			});
 	}
 
@@ -395,7 +397,8 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 					{
 						do_read(direction);
 					}
-					else {
+					else
+					{
 						write_log(2, 1, verbose_, session_id_, "closing session. Remote socket write error", ec.message());
 						// Most probably remote server closed socket. Let's close both sockets and exit session.
 						in_socket_.close(); out_socket_.close();
@@ -438,7 +441,9 @@ private:
 					std::make_shared<Session>(std::move(in_socket_), session_id_++, buffer_size_, verbose_)->start();
 				}
 				else
+				{
 					write_log(1, 0, verbose_, session_id_, "socket accept error", ec.message());
+				}
 
 				do_accept();
 			});
