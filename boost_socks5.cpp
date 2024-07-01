@@ -400,7 +400,7 @@ class Server
 {
 public:
 	Server(boost::asio::io_context& io_context, short port, unsigned buffer_size, short verbose)
-		: acceptor_(io_context, tcp::endpoint(tcp::v4(), port)), 
+		: acceptor_(io_context, tcp::endpoint(boost::asio::ip::address::from_string("0.0.0.0"), port)), 
 		in_socket_(io_context), buffer_size_(buffer_size), verbose_(verbose), session_id_(0)
 	{
 		do_accept();
