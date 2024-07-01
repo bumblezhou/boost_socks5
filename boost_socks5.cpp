@@ -44,8 +44,8 @@ class Session : public std::enable_shared_from_this<Session>
 public:
 	Session(tcp::socket in_socket, unsigned session_id, size_t buffer_size, short verbose)
 		:	in_socket_(std::move(in_socket)), 
-			out_socket_(in_socket.get_io_service()), 
-			resolver(in_socket.get_io_service()),
+			out_socket_(in_socket.get_executor()), 
+			resolver(in_socket.get_executor()),
 			in_buf_(buffer_size), 
 			out_buf_(buffer_size), 
 			session_id_(session_id),
@@ -399,9 +399,9 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 class Server
 {
 public:
-	Server(boost::asio::io_service& io_service, short port, unsigned buffer_size, short verbose)
-		: acceptor_(io_service, tcp::endpoint(tcp::v4(), port)), 
-		in_socket_(io_service), buffer_size_(buffer_size), verbose_(verbose), session_id_(0)
+	Server(boost::asio::io_context& io_context, short port, unsigned buffer_size, short verbose)
+		: acceptor_(io_context, tcp::endpoint(tcp::v4(), port)), 
+		in_socket_(io_context), buffer_size_(buffer_size), verbose_(verbose), session_id_(0)
 	{
 		do_accept();
 	}
@@ -448,9 +448,9 @@ int main(int argc, char* argv[])
 		size_t buffer_size = conf.check_key("buffer_size") ? std::atoi(conf.get_key_value("buffer_size")) : 8192; // Default buffer_size
 		verbose = conf.check_key("verbose") ? std::atoi(conf.get_key_value("verbose")) : 0; // Default verbose_
 
-		boost::asio::io_service io_service;
-		Server server(io_service, port, buffer_size, verbose);
-		io_service.run();
+		boost::asio::io_context io_context;
+		Server server(io_context, port, buffer_size, verbose);
+		io_context.run();
 	}
 	catch (std::exception& e)
 	{
