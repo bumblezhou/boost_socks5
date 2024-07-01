@@ -75,7 +75,8 @@ private:
 		in_socket_.async_receive(boost::asio::buffer(in_buf_),
 			[this, self](boost::system::error_code ec, std::size_t length)
 			{
-				if (!ec) {
+				if (!ec)
+				{
 /*
 The client connects to the server, and sends a version
 identifier/method selection message:
@@ -131,7 +132,8 @@ o  X'FF' NO ACCEPTABLE METHODS
 		boost::asio::async_write(in_socket_, boost::asio::buffer(in_buf_, 2), // Always 2-byte according to RFC1928
 			[this, self](boost::system::error_code ec, std::size_t length)
 			{
-				if (!ec) {	
+				if (!ec)
+				{	
 					if (in_buf_[1] == 0xFF)
 					{
 						return; // No appropriate auth method found. Close session.
