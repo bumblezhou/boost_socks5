@@ -115,6 +115,8 @@ o  X'FF' NO ACCEPTABLE METHODS
 							in_buf_[1] = 0x00; break; 
 						}
 					}
+
+					// std::cout << "session(" << session_id_ << "): [boost_socks5] receive SOCKS5 handshake request.\n";
 					
 					write_socks5_handshake();
 				}
@@ -133,11 +135,12 @@ o  X'FF' NO ACCEPTABLE METHODS
 			[this, self](boost::system::error_code ec, std::size_t length)
 			{
 				if (!ec)
-				{	
+				{
 					if (in_buf_[1] == 0xFF)
 					{
 						return; // No appropriate auth method found. Close session.
 					}
+					// std::cout << "session(" << session_id_ << "): [boost_socks5] SOCKS5 handshake successfull.\n";
 					read_socks5_request();
 				}
 				else
@@ -199,12 +202,14 @@ appropriate for the request type.
 						if (length != 10) { write_log(1, 0, verbose_, session_id_, "SOCKS5 request length is invalid. Closing session."); return; }
 						remote_host_ = boost::asio::ip::address_v4(ntohl(*((uint32_t*)&in_buf_[4]))).to_string();
 						remote_port_ = std::to_string(ntohs(*((uint16_t*)&in_buf_[8])));
+						// std::cout << "session(" << session_id_ << "): [boost_socks5] 0x01 target_address:" << remote_host_ << ", target_port:" << remote_port_ << std::endl;
 						break;
 					case 0x03: // DOMAINNAME
 						host_length = in_buf_[4];
 						if (length != (size_t)(5 + host_length + 2)) { write_log(1, 0, verbose_, session_id_, "SOCKS5 request length is invalid. Closing session."); return; }
-						remote_host_ = std::string(&in_buf_[5], host_length);
+						remote_host_ = std::string((char*)&in_buf_[5], host_length);
 						remote_port_ = std::to_string(ntohs(*((uint16_t*)&in_buf_[5 + host_length])));
+						// std::cout << "session(" << session_id_ << "): [boost_socks5] 0x03 target_address:" << remote_host_ << ", target_port:" << remote_port_ << std::endl;
 						break;
 					default:
 						write_log(1, 0, verbose_, session_id_, "unsupport_ed address type in SOCKS5 request. Closing session.");
@@ -250,6 +255,7 @@ appropriate for the request type.
 				{
 					std::ostringstream what; what << "connected to " << remote_host_ << ":" << remote_port_;
 					write_log(0, 1, verbose_, session_id_, what.str());
+					// std::cout << "session(" << session_id_ << "): [boost_socks5] connect to target server." << remote_host_ << ":" << remote_port_ << std::endl;
 					write_socks5_response();
 				}
 				else
@@ -307,6 +313,12 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 
 		std::memcpy(&in_buf_[4], &realRemoteIP, 4);
 		std::memcpy(&in_buf_[8], &realRemoteport, 2);
+
+		// printf("session(%d): [boost_socks5] in_buf_:", session_id_);
+    // for(int i = 0; i < 10; i++) {
+    //   printf("0x%x ", in_buf_[i]);
+    // }
+    // printf("\n");
 
 		boost::asio::async_write(in_socket_, boost::asio::buffer(in_buf_, 10), // Always 10-byte according to RFC1928
 			[this, self](boost::system::error_code ec, std::size_t length)
@@ -414,8 +426,8 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 
 	std::string remote_host_;
 	std::string remote_port_;
-	std::vector<char> in_buf_;
-	std::vector<char> out_buf_;
+	std::vector<std::uint8_t> in_buf_;
+	std::vector<std::uint8_t> out_buf_;
 	int session_id_;
 	short verbose_;
 };
