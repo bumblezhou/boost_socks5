@@ -11,6 +11,9 @@
 #include <utility>
 #include <boost/asio.hpp>
 #include <fstream>
+#include <sstream>
+#include <thread>
+#include <boost/thread/thread.hpp>
 #include "config_reader.hpp"
 
 using boost::asio::ip::tcp;
@@ -64,6 +67,10 @@ public:
 
 	void start()
 	{
+		std::ostringstream oss;
+    oss << std::this_thread::get_id();
+		write_log(0, 0, verbose_, session_id_, "start in thread(" + oss.str() + ")");
+
 		read_socks5_handshake();
 	}
 
@@ -355,7 +362,7 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 					{
 						write_log(2, 1, verbose_, session_id_, "closing session. Client socket read error", ec.message());
 						// Most probably client closed socket. Let's close both sockets and exit session.
-						in_socket_.close(); out_socket_.close();
+						in_socket_.close();
 					}
 				});
 
@@ -374,7 +381,7 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 					{
 						write_log(2, 1, verbose_, session_id_, "closing session. Remote socket read error", ec.message());
 						// Most probably remote server closed socket. Let's close both sockets and exit session.
-						in_socket_.close(); out_socket_.close();
+						out_socket_.close();
 					}
 				});
 	}
@@ -397,7 +404,7 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 					{
 						write_log(2, 1, verbose_, session_id_, "closing session. Client socket write error", ec.message());
 						// Most probably client closed socket. Let's close both sockets and exit session.
-						in_socket_.close(); out_socket_.close();
+						out_socket_.close();
 					}
 				});
 			break;
@@ -413,7 +420,7 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 					{
 						write_log(2, 1, verbose_, session_id_, "closing session. Remote socket write error", ec.message());
 						// Most probably remote server closed socket. Let's close both sockets and exit session.
-						in_socket_.close(); out_socket_.close();
+						in_socket_.close();
 					}
 				});
 			break;
@@ -488,7 +495,15 @@ int main(int argc, char* argv[])
 
 		boost::asio::io_context io_context;
 		Server server(io_context, port, buffer_size, verbose);
-		io_context.run();
+		// io_context.run();
+
+		// Create a thread pool
+		boost::thread_group thread_pool;
+		for (std::size_t i = 0; i < boost::thread::hardware_concurrency(); ++i) {
+				thread_pool.create_thread([&io_context]() { io_context.run(); });
+		}
+
+		thread_pool.join_all();
 	}
 	catch (std::exception& e)
 	{
