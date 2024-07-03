@@ -132,7 +132,7 @@ o  X'FF' NO ACCEPTABLE METHODS
 						return;
 					}
 
-					print_buffer("read_socks5_handshake", in_buf_, 3);
+					// print_buffer("read_socks5_handshake", in_buf_, 3);
 
 					uint8_t num_methods = in_buf_[1];
 					// Prepare request
@@ -149,7 +149,7 @@ o  X'FF' NO ACCEPTABLE METHODS
 
 					in_buf_[1] = get_auth_method(in_buf_);
 
-					print_buffer("write_socks5_handshake", in_buf_, 2);
+					// print_buffer("write_socks5_handshake", in_buf_, 2);
 					
 					write_socks5_handshake();
 				}
@@ -226,7 +226,7 @@ it responds with username and password credentials:
 						return;
 					}
 
-					print_buffer("verify_credentials", in_buf_, 24);
+					// print_buffer("verify_credentials", in_buf_, 24);
 
 					uint8_t ver = in_buf_[0];
 					uint8_t ulen = in_buf_[1];
@@ -245,7 +245,7 @@ it responds with username and password credentials:
 						in_buf_[1] = 0xFF;
 					}
 
-					print_buffer("verify_credentials", in_buf_, 2);
+					// print_buffer("verify_credentials", in_buf_, 2);
 
 					boost::asio::async_write(in_socket_, boost::asio::buffer(in_buf_, 2), // Always 2-byte according to RFC1928
 					[this, self](boost::system::error_code ec, std::size_t length)
@@ -311,7 +311,7 @@ appropriate for the request type.
 						return;
 					}
 
-					print_buffer("read_socks5_request", in_buf_, 20);
+					// print_buffer("read_socks5_request", in_buf_, 20);
 
 					uint8_t addr_type = in_buf_[3], host_length;
 
@@ -433,7 +433,7 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 		std::memcpy(&in_buf_[4], &realRemoteIP, 4);
 		std::memcpy(&in_buf_[8], &realRemoteport, 2);
 
-		print_buffer("write_socks5_response", in_buf_, 10);
+		// print_buffer("write_socks5_response", in_buf_, 10);
 
 		boost::asio::async_write(in_socket_, boost::asio::buffer(in_buf_, 10), // Always 10-byte according to RFC1928
 			[this, self](boost::system::error_code ec, std::size_t length)
