@@ -52,17 +52,39 @@ inline void write_log(int prefix, short verbose, short verbose_level, int sessio
 	}
 }
 
+void print_buffer(const std::string remarks, const std::vector<std::uint8_t>& buffer, const size_t size)
+{
+	if (size > buffer.size() || buffer.size() <= 0) {
+		return;
+	}
+
+	printf("%s buffer:", remarks.c_str());
+	for(size_t i = 0; i < size; ++i)
+	{
+		printf("%d ", buffer[i]);
+	}
+	printf("\n");
+	printf("%s buffer:", remarks.c_str());
+	for(size_t i = 0; i < size; ++i)
+	{
+		printf("%x ", buffer[i]);
+	}
+	printf("\n");
+}
+
 class Session : public std::enable_shared_from_this<Session>
 {
 public:
-	Session(tcp::socket in_socket, unsigned session_id, size_t buffer_size, short verbose)
+	Session(tcp::socket in_socket, unsigned session_id, size_t buffer_size, short verbose, std::string& uname, std::string& passwd)
 		:	in_socket_(std::move(in_socket)), 
 			out_socket_(in_socket.get_executor()), 
 			resolver(in_socket.get_executor()),
 			in_buf_(buffer_size), 
 			out_buf_(buffer_size), 
 			session_id_(session_id),
-			verbose_(verbose)
+			verbose_(verbose),
+			uname_(uname),
+			passwd_(passwd_)
 	{}
 
 	void start()
@@ -110,6 +132,8 @@ o  X'FF' NO ACCEPTABLE METHODS
 						return;
 					}
 
+					print_buffer("read_socks5_handshake", in_buf_, 3);
+
 					uint8_t num_methods = in_buf_[1];
 					// Prepare request
 					in_buf_[1] = 0xFF;
@@ -123,7 +147,9 @@ o  X'FF' NO ACCEPTABLE METHODS
 						}
 					}
 
-					// std::cout << "session(" << session_id_ << "): [boost_socks5] receive SOCKS5 handshake request.\n";
+					in_buf_[1] = get_auth_method(in_buf_);
+
+					print_buffer("write_socks5_handshake", in_buf_, 2);
 					
 					write_socks5_handshake();
 				}
@@ -132,6 +158,22 @@ o  X'FF' NO ACCEPTABLE METHODS
 					write_log(1, 0, verbose_, session_id_, "SOCKS5 handshake request", ec.message());
 				}
 			});
+	}
+
+	uint8_t get_auth_method(const std::vector<uint8_t>& buffer)
+	{
+		uint8_t result{0};
+		if (buffer.size() < 3)
+		{
+			return result;
+		}
+		uint8_t methods_count = buffer[1];
+		for(uint8_t i = 0; i < methods_count; ++i)
+		{
+			result = buffer[2 + i];
+			break;	// get the first auth method and return.
+		}
+		return result;
 	}
 
 	void write_socks5_handshake()
@@ -147,12 +189,80 @@ o  X'FF' NO ACCEPTABLE METHODS
 					{
 						return; // No appropriate auth method found. Close session.
 					}
-					// std::cout << "session(" << session_id_ << "): [boost_socks5] SOCKS5 handshake successfull.\n";
-					read_socks5_request();
+					
+					verify_credentials();
+					// read_socks5_request();
 				}
 				else
 				{
 					write_log(1, 0, verbose_, session_id_, "SOCKS5 handshake response write", ec.message());
+				}
+			});
+	}
+
+	void verify_credentials()
+	{
+		auto self(shared_from_this());
+
+		in_socket_.async_receive(boost::asio::buffer(in_buf_),
+			[this, self](boost::system::error_code ec, std::size_t length)
+			{
+				if (!ec)
+				{
+/*
+Once the client has received the server choice, 
+it responds with username and password credentials:
+
++----+----------+----------+----------+----------+
+|VER |   ULEN   |   UNAME  |   PLEN   |  PASSWD  |
++----+----------+----------+----------+----------+
+| 1  |    1     | 1 to 255 |    1     | 1 to 255 |
++----+----------+----------+----------+----------+
+
+*/
+					if (length < 3 || in_buf_[0] != 0x01)
+					{
+						write_log(1, 0, verbose_, session_id_, "SOCKS5 credentials is invalid. Closing session.");
+						return;
+					}
+
+					print_buffer("verify_credentials", in_buf_, 24);
+
+					uint8_t ver = in_buf_[0];
+					uint8_t ulen = in_buf_[1];
+					std::string uname = std::string((char*)&in_buf_[2], ulen);
+					uint8_t plen = in_buf_[2 + ulen];
+					std::string passwd = std::string((char*)&in_buf_[3 + ulen], plen);
+					// printf("verify_credentials: ver: %d, ulen: %d, uname:%s, plen: %d, passwd: %s\n", ver, ulen, uname.c_str(), plen, passwd.c_str());
+					if (uname.compare("test_name") == 0 && passwd.compare("test_pass") == 0)
+					{
+						in_buf_[0] = ver;
+						in_buf_[1] = 0x00;
+					}
+					else
+					{
+						in_buf_[0] = ver;
+						in_buf_[1] = 0xFF;
+					}
+
+					print_buffer("verify_credentials", in_buf_, 2);
+
+					boost::asio::async_write(in_socket_, boost::asio::buffer(in_buf_, 2), // Always 2-byte according to RFC1928
+					[this, self](boost::system::error_code ec, std::size_t length)
+					{
+						if (!ec)
+						{
+							read_socks5_request();
+						}
+						else
+						{
+							write_log(1, 0, verbose_, session_id_, "SOCKS5 handshake response write", ec.message());
+						}
+					});
+				}
+				else
+				{
+					write_log(1, 0, verbose_, session_id_, "SOCKS5 handshake request", ec.message());
 				}
 			});
 	}
@@ -200,6 +310,8 @@ appropriate for the request type.
 						write_log(1, 0, verbose_, session_id_, "SOCKS5 request is invalid. Closing session.");
 						return;
 					}
+
+					print_buffer("read_socks5_request", in_buf_, 20);
 
 					uint8_t addr_type = in_buf_[3], host_length;
 
@@ -262,7 +374,7 @@ appropriate for the request type.
 				{
 					std::ostringstream what; what << "connected to " << remote_host_ << ":" << remote_port_;
 					write_log(0, 1, verbose_, session_id_, what.str());
-					// std::cout << "session(" << session_id_ << "): [boost_socks5] connect to target server." << remote_host_ << ":" << remote_port_ << std::endl;
+					
 					write_socks5_response();
 				}
 				else
@@ -321,11 +433,7 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 		std::memcpy(&in_buf_[4], &realRemoteIP, 4);
 		std::memcpy(&in_buf_[8], &realRemoteport, 2);
 
-		// printf("session(%d): [boost_socks5] in_buf_:", session_id_);
-    // for(int i = 0; i < 10; i++) {
-    //   printf("0x%x ", in_buf_[i]);
-    // }
-    // printf("\n");
+		print_buffer("write_socks5_response", in_buf_, 10);
 
 		boost::asio::async_write(in_socket_, boost::asio::buffer(in_buf_, 10), // Always 10-byte according to RFC1928
 			[this, self](boost::system::error_code ec, std::size_t length)
@@ -433,18 +541,20 @@ Fields marked RESERVED (RSV) must be set to X'00'.
 
 	std::string remote_host_;
 	std::string remote_port_;
-	std::vector<std::uint8_t> in_buf_;
-	std::vector<std::uint8_t> out_buf_;
+	std::vector<uint8_t> in_buf_;
+	std::vector<uint8_t> out_buf_;
 	int session_id_;
 	short verbose_;
+	std::string uname_;
+	std::string passwd_;
 };
 
 class Server
 {
 public:
-	Server(boost::asio::io_context& io_context, short port, unsigned buffer_size, short verbose)
+	Server(boost::asio::io_context& io_context, short port, unsigned buffer_size, short verbose, std::string& uname, std::string& passwd)
 		: acceptor_(io_context, tcp::endpoint(boost::asio::ip::address::from_string("0.0.0.0"), port)), 
-		in_socket_(io_context), buffer_size_(buffer_size), verbose_(verbose), session_id_(0)
+		in_socket_(io_context), buffer_size_(buffer_size), verbose_(verbose), session_id_(0), uname_(uname), passwd_(passwd_)
 	{
 		do_accept();
 	}
@@ -457,7 +567,7 @@ private:
 			{
 				if (!ec)
 				{
-					std::make_shared<Session>(std::move(in_socket_), session_id_++, buffer_size_, verbose_)->start();
+					std::make_shared<Session>(std::move(in_socket_), session_id_++, buffer_size_, verbose_, uname_, passwd_)->start();
 				}
 				else
 				{
@@ -473,6 +583,8 @@ private:
 	size_t buffer_size_;
 	short verbose_;
 	unsigned session_id_;
+	std::string uname_;
+	std::string passwd_;
 };
 
 int main(int argc, char* argv[])
@@ -492,9 +604,11 @@ int main(int argc, char* argv[])
 		short port = conf.check_key("port") ? std::atoi(conf.get_key_value("port")) : 1080; // Default port_
 		size_t buffer_size = conf.check_key("buffer_size") ? std::atoi(conf.get_key_value("buffer_size")) : 8192; // Default buffer_size
 		verbose = conf.check_key("verbose") ? std::atoi(conf.get_key_value("verbose")) : 0; // Default verbose_
+		std::string uname = conf.check_key("uname") ? conf.get_key_value("uname") : "";
+		std::string passwd = conf.check_key("passwd") ? conf.get_key_value("passwd") : "";
 
 		boost::asio::io_context io_context;
-		Server server(io_context, port, buffer_size, verbose);
+		Server server(io_context, port, buffer_size, verbose, uname, passwd);
 		// io_context.run();
 
 		// Create a thread pool
