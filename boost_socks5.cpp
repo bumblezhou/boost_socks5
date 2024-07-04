@@ -84,7 +84,7 @@ public:
 			session_id_(session_id),
 			verbose_(verbose),
 			uname_(uname),
-			passwd_(passwd_)
+			passwd_(passwd)
 	{}
 
 	void start()
@@ -147,7 +147,12 @@ o  X'FF' NO ACCEPTABLE METHODS
 						}
 					}
 
-					in_buf_[1] = get_auth_method(in_buf_);
+					uint8_t auth_method { get_auth_method(in_buf_) };
+					// 0x02 - 'USERNAME/PASSWORD' is support_ed now
+					if (auth_method == 0x02)
+					{
+						in_buf_[1] = auth_method;
+					}
 
 					// print_buffer("write_socks5_handshake", in_buf_, 2);
 					
@@ -190,8 +195,15 @@ o  X'FF' NO ACCEPTABLE METHODS
 						return; // No appropriate auth method found. Close session.
 					}
 					
-					verify_credentials();
-					// read_socks5_request();
+					// 0x02 - 'USERNAME/PASSWORD' is support_ed now
+					if (in_buf_[1] == 0x02)
+					{
+						verify_credentials();
+					}
+					else
+					{
+						read_socks5_request();
+					}
 				}
 				else
 				{
@@ -234,7 +246,8 @@ it responds with username and password credentials:
 					uint8_t plen = in_buf_[2 + ulen];
 					std::string passwd = std::string((char*)&in_buf_[3 + ulen], plen);
 					// printf("verify_credentials: ver: %d, ulen: %d, uname:%s, plen: %d, passwd: %s\n", ver, ulen, uname.c_str(), plen, passwd.c_str());
-					if (uname.compare("test_name") == 0 && passwd.compare("test_pass") == 0)
+					// printf("verify_credentials: uname:%s, passwd: %s\n", uname_.c_str(), passwd_.c_str());
+					if (uname.compare(uname_) == 0 && passwd.compare(passwd_) == 0)
 					{
 						in_buf_[0] = ver;
 						in_buf_[1] = 0x00;
@@ -256,13 +269,13 @@ it responds with username and password credentials:
 						}
 						else
 						{
-							write_log(1, 0, verbose_, session_id_, "SOCKS5 handshake response write", ec.message());
+							write_log(1, 0, verbose_, session_id_, "SOCKS5 verify credentials", ec.message());
 						}
 					});
 				}
 				else
 				{
-					write_log(1, 0, verbose_, session_id_, "SOCKS5 handshake request", ec.message());
+					write_log(1, 0, verbose_, session_id_, "SOCKS5 verify credentials", ec.message());
 				}
 			});
 	}
@@ -554,7 +567,7 @@ class Server
 public:
 	Server(boost::asio::io_context& io_context, short port, unsigned buffer_size, short verbose, std::string& uname, std::string& passwd)
 		: acceptor_(io_context, tcp::endpoint(boost::asio::ip::address::from_string("0.0.0.0"), port)), 
-		in_socket_(io_context), buffer_size_(buffer_size), verbose_(verbose), session_id_(0), uname_(uname), passwd_(passwd_)
+		in_socket_(io_context), buffer_size_(buffer_size), verbose_(verbose), session_id_(0), uname_(uname), passwd_(passwd)
 	{
 		do_accept();
 	}
