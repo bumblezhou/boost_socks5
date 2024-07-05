@@ -262,16 +262,16 @@ it responds with username and password credentials:
 
 					boost::asio::async_write(in_socket_, boost::asio::buffer(in_buf_, 2), // Always 2-byte according to RFC1928
 					[this, self](boost::system::error_code ec, std::size_t length)
-					{
-						if (!ec)
 						{
-							read_socks5_request();
-						}
-						else
-						{
-							write_log(1, 0, verbose_, session_id_, "SOCKS5 verify credentials", ec.message());
-						}
-					});
+							if (!ec)
+							{
+								read_socks5_request();
+							}
+							else
+							{
+								write_log(1, 0, verbose_, session_id_, "SOCKS5 verify credentials", ec.message());
+							}
+						});
 				}
 				else
 				{
@@ -324,24 +324,34 @@ appropriate for the request type.
 						return;
 					}
 
-					// print_buffer("read_socks5_request", in_buf_, 20);
+					// print_buffer("read_socks5_request", in_buf_, 24);
 
 					uint8_t addr_type = in_buf_[3], host_length;
 
 					switch (addr_type)
 					{
 					case 0x01: // IP V4 addres
-						if (length != 10) { write_log(1, 0, verbose_, session_id_, "SOCKS5 request length is invalid. Closing session."); return; }
+						if (length != 10) { write_log(1, 0, verbose_, session_id_, "SOCKS5 0x01 request length is invalid. Closing session."); return; }
 						remote_host_ = boost::asio::ip::address_v4(ntohl(*((uint32_t*)&in_buf_[4]))).to_string();
 						remote_port_ = std::to_string(ntohs(*((uint16_t*)&in_buf_[8])));
 						// std::cout << "session(" << session_id_ << "): [boost_socks5] 0x01 target_address:" << remote_host_ << ", target_port:" << remote_port_ << std::endl;
 						break;
 					case 0x03: // DOMAINNAME
 						host_length = in_buf_[4];
-						if (length != (size_t)(5 + host_length + 2)) { write_log(1, 0, verbose_, session_id_, "SOCKS5 request length is invalid. Closing session."); return; }
+						if (length != (size_t)(5 + host_length + 2)) { write_log(1, 0, verbose_, session_id_, "SOCKS5 0x03 request length is invalid. Closing session."); return; }
 						remote_host_ = std::string((char*)&in_buf_[5], host_length);
 						remote_port_ = std::to_string(ntohs(*((uint16_t*)&in_buf_[5 + host_length])));
 						// std::cout << "session(" << session_id_ << "): [boost_socks5] 0x03 target_address:" << remote_host_ << ", target_port:" << remote_port_ << std::endl;
+						break;
+					case 0x04: // IP V6 address
+						if (length != 22) { write_log(1, 0, verbose_, session_id_, "SOCKS5 0x04 request length is invalid. Closing session."); return; }
+						// printf("1. length:%ld, remote_host_:%s, remote_port_:%s\n", length, remote_host_.c_str(), remote_port_.c_str());
+						std::array<uint8_t, 16> ipv6_buf;
+						std::copy(in_buf_.begin() + 4, in_buf_.begin() + 20, ipv6_buf.begin());
+						remote_host_ = boost::asio::ip::address_v6(*reinterpret_cast<boost::asio::ip::address_v6::bytes_type*>(&ipv6_buf)).to_string();
+						// printf("2. length:%ld, remote_host_:%s, remote_port_:%s\n", length, remote_host_.c_str(), remote_port_.c_str());
+						remote_port_ = std::to_string(ntohs(*((uint16_t*)&in_buf_[20])));
+						// printf("3. length:%ld, remote_host_:%s, remote_port_:%s\n", length, remote_host_.c_str(), remote_port_.c_str());
 						break;
 					default:
 						write_log(1, 0, verbose_, session_id_, "unsupport_ed address type in SOCKS5 request. Closing session.");
@@ -361,26 +371,38 @@ appropriate for the request type.
 	{
 		auto self(shared_from_this());
 
-		resolver.async_resolve(tcp::resolver::query({ remote_host_, remote_port_ }),
-			[this, self](const boost::system::error_code& ec, tcp::resolver::iterator it)
-			{
-				if (!ec)
+		// IP V6 address
+		uint8_t addr_type = in_buf_[3];
+		if (addr_type == 0x04)
+		{
+			const boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address_v6(remote_host_), std::stoi(remote_port_));
+			do_connect(endpoint);
+		}
+		else
+		{
+			resolver.async_resolve(tcp::resolver::query({ remote_host_, remote_port_ }),
+				[this, self](const boost::system::error_code& ec, tcp::resolver::iterator it)
 				{
-					do_connect(it);
-				}
-				else
-				{
-					std::ostringstream what; what << "failed to resolve " << remote_host_ << ":" << remote_port_;
-					write_log(1, 0, verbose_, session_id_, what.str(), ec.message());
-				}
-			});
+					if (!ec)
+					{
+						// IP V4 address or Domain Name
+						const boost::asio::ip::tcp::endpoint endpoint{*it};
+						do_connect(endpoint);
+					}
+					else
+					{
+						std::ostringstream what; what << "failed to resolve " << remote_host_ << ":" << remote_port_;
+						write_log(1, 0, verbose_, session_id_, what.str(), ec.message());
+					}
+				});
+		}
 	}
 
-	void do_connect(tcp::resolver::iterator& it)
+	void do_connect(const boost::asio::ip::tcp::endpoint& endpoint)
 	{
 		auto self(shared_from_this());
 
-		out_socket_.async_connect(*it, 
+		out_socket_.async_connect(endpoint, 
 			[this, self](const boost::system::error_code& ec)
 			{
 				if (!ec)
@@ -439,12 +461,24 @@ o  BND.PORT       server bound port_ in network octet order
 
 Fields marked RESERVED (RSV) must be set to X'00'.
 */
-		in_buf_[0] = 0x05; in_buf_[1] = 0x00; in_buf_[2] = 0x00; in_buf_[3] = 0x01;
-		uint32_t realRemoteIP = out_socket_.remote_endpoint().address().to_v4().to_ulong();
-		uint16_t realRemoteport = htons(out_socket_.remote_endpoint().port());
+		if (in_buf_[3] != 0x04)
+		{
+			in_buf_[0] = 0x05; in_buf_[1] = 0x00; in_buf_[2] = 0x00; in_buf_[3] = 0x01;
+			uint32_t realRemoteIP = out_socket_.remote_endpoint().address().to_v4().to_ulong();
+			uint16_t realRemoteport = htons(out_socket_.remote_endpoint().port());
 
-		std::memcpy(&in_buf_[4], &realRemoteIP, 4);
-		std::memcpy(&in_buf_[8], &realRemoteport, 2);
+			std::memcpy(&in_buf_[4], &realRemoteIP, 4);
+			std::memcpy(&in_buf_[8], &realRemoteport, 2);
+		}
+		else 
+		{
+			in_buf_[0] = 0x05; in_buf_[1] = 0x00; in_buf_[2] = 0x00; in_buf_[3] = 0x04;
+			boost::asio::ip::address_v6::bytes_type realRemoteIP = out_socket_.remote_endpoint().address().to_v6().to_bytes();
+			uint16_t realRemoteport = htons(out_socket_.remote_endpoint().port());
+
+			std::memcpy(&in_buf_[4], &realRemoteIP, 16);
+			std::memcpy(&in_buf_[20], &realRemoteport, 2);
+		}
 
 		// print_buffer("write_socks5_response", in_buf_, 10);
 
